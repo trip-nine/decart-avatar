@@ -19,33 +19,22 @@ export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const token = authHeader?.replace("Bearer ", "");
 
-  console.log("[/api/chat] Auth header present:", !!authHeader);
-  console.log("[/api/chat] Token length:", token?.length || 0);
-
   if (!token) {
-    console.log("[/api/chat] REJECTED: No token in Authorization header");
-    console.log("[/api/chat] All headers:", Object.fromEntries(req.headers.entries()));
-    return new Response("Unauthorized - no token", { status: 401 });
+    return new Response("Unauthorized", { status: 401 });
   }
 
   const session = validateSession(token);
   if (!session) {
-    console.log("[/api/chat] REJECTED: JWT validation failed for token:", token.substring(0, 20) + "...");
-    return new Response("Invalid session - JWT validation failed", { status: 401 });
+    return new Response("Invalid session", { status: 401 });
   }
-
-  console.log("[/api/chat] Auth OK for:", session.email);
 
   try {
     const body = await req.json();
     const { messages }: { messages: UIMessage[] } = body;
 
     if (!messages || !Array.isArray(messages)) {
-      console.log("[/api/chat] No messages in body. Body keys:", Object.keys(body));
       return new Response("No messages provided", { status: 400 });
     }
-
-    console.log("[/api/chat] Processing", messages.length, "UI messages");
 
     // Convert UI messages (from useChat) to model messages (for streamText)
     // AI SDK v6 sends UIMessage[] with parts, but streamText needs ModelMessage[]
@@ -59,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     return result.toUIMessageStreamResponse();
   } catch (error) {
-    console.error("[/api/chat] Error:", error);
-    return new Response(`Chat error: ${error instanceof Error ? error.message : "Unknown"}`, { status: 500 });
+    console.error("Chat error:", error);
+    return new Response("Chat error", { status: 500 });
   }
 }
