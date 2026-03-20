@@ -10,6 +10,8 @@
   --muted: #71717a;
   --danger: #ef4444;
   --success: #22c55e;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
 }
 
 @theme inline {
@@ -30,12 +32,14 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
 
 /* Pulse animation for mic */
 @keyframes pulse-ring {
@@ -50,7 +54,7 @@ body {
 .avatar-video {
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 0 40px rgba(6, 182, 212, 0.1);
+  box-shadow: 0 0 40px rgba(6, 182, 212, 0.08);
 }
 
 /* Status indicator */
@@ -63,3 +67,50 @@ body {
 .status-dot.connected { background: var(--success); }
 .status-dot.connecting { background: #eab308; animation: pulse-ring 1s infinite; }
 .status-dot.disconnected { background: var(--danger); }
+
+/* Chat sheet overlay */
+.chat-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Chat sheet slide-up animation */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheet-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+.chat-sheet-enter {
+  animation: sheet-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.chat-sheet-exit {
+  animation: sheet-down 0.2s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Touch-friendly focus states */
+input:focus, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Prevent text selection on interactive elements */
+button, [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Audio wave bars animation */
+@keyframes audio-wave {
+  0%, 100% { height: 4px; }
+  50% { height: 12px; }
+}
+.audio-bar {
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: audio-wave 0.8s ease-in-out infinite;
+}

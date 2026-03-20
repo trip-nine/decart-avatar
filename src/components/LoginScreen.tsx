@@ -39,14 +39,15 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="w-full max-w-md">
+    <div className="flex-1 flex items-center justify-center px-6 py-12"
+      style={{ paddingBottom: "max(3rem, var(--safe-bottom))" }}>
+      <div className="w-full max-w-sm">
         {/* Logo / Brand */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-card border border-card-border mb-6">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-card border border-card-border mb-5">
             <svg
-              width="32"
-              height="32"
+              width="28"
+              height="28"
               viewBox="0 0 32 32"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -61,10 +62,10 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               <circle cx="16" cy="12" r="2" fill="var(--accent)" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">
+          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">
             AI Support Avatar
           </h1>
-          <p className="text-muted text-sm mt-2">
+          <p className="text-muted text-xs sm:text-sm mt-1.5">
             Real-time technical support powered by Decart
           </p>
         </div>
@@ -85,7 +86,9 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
               required
-              className="w-full px-4 py-3 bg-card border border-card-border rounded-lg text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-all"
+              autoComplete="email"
+              autoCapitalize="none"
+              className="w-full px-4 py-3 bg-card border border-card-border rounded-xl text-foreground placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-all text-base"
             />
           </div>
 
@@ -96,7 +99,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
           <button
             type="submit"
             disabled={loading || !email}
-            className="w-full py-3 px-4 bg-accent hover:bg-accent-hover text-background font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 px-4 bg-accent hover:bg-accent-hover active:scale-[0.98] text-background font-medium rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-base"
           >
             {loading ? (
               <span className="inline-flex items-center gap-2">
@@ -109,7 +112,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
           </button>
         </form>
 
-        <p className="text-center text-muted/60 text-xs mt-8">
+        <p className="text-center text-muted/60 text-xs mt-6">
           Dev prototype — no verification email required
         </p>
       </div>
