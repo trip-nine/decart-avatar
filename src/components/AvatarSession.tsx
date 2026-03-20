@@ -104,7 +104,7 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
 
       setStatusMessage("Connecting to Decart...");
 
-      const ws = new WebSocket(`wss://api3.decart.ai/v1/live_avatar/stream?api_key=${apiKey}`);
+      const ws = new WebSocket(`wss://api3.decart.ai/v1/stream?api_key=${apiKey}&model=live_avatar`);
       wsRef.current = ws;
 
       ws.onopen = async () => {
@@ -139,12 +139,14 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event) => {
+        console.error("WebSocket error:", event);
         setStatusMessage("WebSocket connection failed");
         setConnectionState("error");
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log("WebSocket closed:", event.code, event.reason);
         if (connectionState === "connected") {
           setConnectionState("disconnected");
           setStatusMessage("Connection lost. Tap Connect to reconnect.");
