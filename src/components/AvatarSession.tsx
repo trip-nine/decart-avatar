@@ -30,7 +30,7 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
   const pcRef = useRef<RTCPeerConnection | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const decartTokenRef = useRef<string>("");
   const chatLogRef = useRef<HTMLDivElement>(null);
 
@@ -203,62 +203,104 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
     }));
   };
 
-  // Send audio blob to Decart for lip-sync
-  const sendAudioToDecart = async (audioBlob: Blob) => {
+  // Send audio base64 to Decart for lip-sync animation
+  const sendAudioToDecart = (audioBase64: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    const audioBase64 = await blobToBase64(audioBlob);
     wsRef.current.send(JSON.stringify({
       type: "audio",
       audio_data: audioBase64,
     }));
   };
 
-  // Text-to-Speech → capture audio → send to Decart avatar
+  // Text-to-Speech pipeline:
+  // 1. Call /api/tts to generate MP3 audio bytes (female voice)
+  // 2. Send audio base64 to Decart WebSocket for lip-sync
+  // 3. Play audio in browser simultaneously
   const speakThroughAvatar = async (text: string) => {
     setIsSpeaking(true);
     setChatLog((prev) => [...prev, { role: "assistant", content: text }]);
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    synthRef.current = utterance;
-
-    const voices = speechSynthesis.getVoices();
-    const preferredVoice = voices.find(
-      (v) => v.name.includes("Samantha") || v.name.includes("Google US English") || v.name.includes("Microsoft")
-    ) || voices.find((v) => v.lang.startsWith("en"));
-    if (preferredVoice) utterance.voice = preferredVoice;
-
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    try {
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
-      const dest = audioCtx.createMediaStreamDestination();
-      const source = audioCtx.createMediaStreamSource(dest.stream);
-
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: "prompt",
-          prompt: "Speaking naturally with warm expressions, making eye contact",
-        }));
-      }
-
-      await audioCtx.close();
-    } catch (e) {
-      // Silently continue
+    // Send a prompt to animate the avatar while speaking
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: "prompt",
+        prompt: "Speaking naturally with warm expressions, making eye contact",
+      }));
     }
 
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: "prompt",
-          prompt: "Listening attentively with occasional subtle nods",
-        }));
-      }
-    };
+    try {
+      // 1. Generate TTS audio via server-side API
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ text, voice: "aoede" }), // aoede = natural female
+      });
 
-    speechSynthesis.speak(utterance);
+      if (!ttsRes.ok) {
+        throw new Error(`TTS failed: ${ttsRes.status}`);
+      }
+
+      const { audio_base64, content_type } = await ttsRes.json();
+
+      // 2. Send audio to Decart for lip-sync animation
+      sendAudioToDecart(audio_base64);
+
+      // 3. Play audio in browser
+      const audioBytes = Uint8Array.from(atob(audio_base64), (c) => c.charCodeAt(0));
+      const audioBlob = new Blob([audioBytes], { type: content_type || "audio/mpeg" });
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      // Stop any previous audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute("src");
+      }
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        setIsSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+        // Return avatar to listening pose
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: "prompt",
+            prompt: "Listening attentively with occasional subtle nods",
+          }));
+        }
+      };
+
+      audio.onerror = () => {
+        console.error("Audio playback error");
+        setIsSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      await audio.play();
+    } catch (error) {
+      console.error("TTS/speak error:", error);
+      setIsSpeaking(false);
+
+      // Fallback: use browser SpeechSynthesis if TTS service is unavailable
+      try {
+        const utterance = new SpeechSynthesisUtterance(text);
+        const voices = speechSynthesis.getVoices();
+        const femaleVoice = voices.find(
+          (v) => v.name.includes("Samantha") || v.name.includes("Google US English")
+        ) || voices.find((v) => v.lang.startsWith("en"));
+        if (femaleVoice) utterance.voice = femaleVoice;
+        utterance.rate = 1.0;
+        utterance.onend = () => setIsSpeaking(false);
+        setIsSpeaking(true);
+        speechSynthesis.speak(utterance);
+      } catch {
+        // Silently fail — at least the chat log shows the response
+      }
+    }
   };
 
   // Start speech recognition
@@ -337,11 +379,18 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
   const disconnect = () => {
     wsRef.current?.close();
     pcRef.current?.close();
-    speechSynthesis.cancel();
+    // Stop any playing TTS audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
+    }
+    speechSynthesis.cancel(); // Also cancel any fallback browser TTS
     recognitionRef.current?.stop();
     wsRef.current = null;
     pcRef.current = null;
     setConnectionState("idle");
+    setIsSpeaking(false);
     setStatusMessage("Disconnected. Tap Connect to start a new session.");
     if (videoRef.current) videoRef.current.srcObject = null;
   };
