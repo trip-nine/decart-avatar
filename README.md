@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Decart AI Support Avatar
 
-## Getting Started
+Real-time technical support AI video persona powered by [Decart Avatar Live](https://platform.decart.ai), with speech recognition, LLM responses via OpenAI, and browser-based TTS.
 
-First, run the development server:
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftrip-nine%2Fdecart-avatar&env=DECART_API_KEY,OPENAI_API_KEY&envDescription=API%20keys%20for%20Decart%20and%20OpenAI&envLink=https%3A%2F%2Fplatform.decart.ai&project-name=decart-avatar&repository-name=decart-avatar)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Architecture
+
+```
+Browser STT (Web Speech API)
+    → OpenAI GPT-4o-mini (Vercel AI SDK)
+        → Browser TTS (Web Speech Synthesis)
+            → Decart Avatar Live (WebRTC lip-sync)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Email auth** — simple session-based authentication
+- **Real-time avatar** — Decart Avatar Live via WebSocket + WebRTC
+- **Voice input** — hold-to-talk with Web Speech API recognition
+- **LLM responses** — OpenAI GPT-4o-mini via Vercel AI SDK streaming
+- **Browser TTS** — zero-latency text-to-speech for avatar lip-sync
+- **Chat sidebar** — full conversation transcript
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup
 
-## Learn More
+1. Clone and install:
+```bash
+git clone https://github.com/trip-nine/decart-avatar.git
+cd decart-avatar
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+2. Configure environment:
+```bash
+cp .env.example .env.local
+# Edit .env.local with your API keys
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Run locally:
+```bash
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment Variables
 
-## Deploy on Vercel
+| Variable | Description |
+|----------|-------------|
+| `DECART_API_KEY` | Your Decart API key from [platform.decart.ai](https://platform.decart.ai) |
+| `OPENAI_API_KEY` | Your OpenAI API key from [platform.openai.com](https://platform.openai.com) |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Extending
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Swap in ElevenLabs TTS
+Replace the Web Speech API TTS with ElevenLabs streaming for higher quality voice. The audio bytes can be piped directly to Decart's `playAudio()` for perfect lip-sync.
+
+### Add Deepgram STT
+Replace Web Speech API recognition with Deepgram streaming for more reliable transcription.
+
+### Pipecat Integration
+For a production pipeline, use [Pipecat](https://github.com/pipecat-ai/pipecat) to orchestrate STT → LLM → TTS → Decart in a single framework.
+
+## Tech Stack
+
+- Next.js 16 (App Router)
+- Decart Avatar Live SDK (`@decartai/sdk`)
+- Vercel AI SDK v6 (`ai`, `@ai-sdk/openai`)
+- Tailwind CSS
+- TypeScript
