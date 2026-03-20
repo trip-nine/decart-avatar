@@ -169,8 +169,8 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
 
   // Text-to-Speech pipeline:
   // 1. Call /api/tts to generate MP3 audio bytes (female voice)
-  // 2. Feed audio to Decart SDK's playAudio() for lip-sync
-  // 3. Play audio in browser simultaneously
+  // 2. Feed audio to Decart SDK's playAudio() for lip-sync + audio output
+  //    (SDK plays audio through WebRTC — server animates lips, remote stream carries sound)
   const speakThroughAvatar = async (text: string) => {
     setIsSpeaking(true);
     setChatLog((prev) => [...prev, { role: "assistant", content: text }]);
@@ -196,41 +196,24 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
       const audioBytes = Uint8Array.from(atob(audio_base64), (c) => c.charCodeAt(0));
       const audioBlob = new Blob([audioBytes], { type: content_type || "audio/mpeg" });
 
-      // 2. Feed audio to Decart SDK for lip-sync animation
-      // playAudio() sends audio through the WebRTC audio track — the server
-      // detects it and animates the avatar's lips accordingly
+      // 2. Play through Decart SDK only — this handles both lip-sync AND audio output.
+      //    The SDK decodes the audio, plays it through a MediaStreamDestination connected
+      //    to the WebRTC peer connection. The server detects audio on the track and
+      //    animates the avatar's lips. The remote stream carries the audio back for playback.
       if (realtimeClientRef.current?.playAudio) {
-        // Play through Decart (lip-sync) — this returns when audio finishes
-        // We run it in parallel with browser audio playback
-        realtimeClientRef.current.playAudio(audioBlob).catch((err: Error) => {
+        try {
+          await realtimeClientRef.current.playAudio(audioBlob);
+        } catch (err: any) {
           console.warn("Decart playAudio error:", err);
-        });
+          // If SDK playback fails, fall back to direct browser audio
+          await playAudioFallback(audioBlob);
+        }
+      } else {
+        // No SDK connection — play directly in browser
+        await playAudioFallback(audioBlob);
       }
 
-      // 3. Also play audio in browser so the user hears the voice
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      // Stop any previous audio
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.removeAttribute("src");
-      }
-
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-
-      audio.onended = () => {
-        setIsSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
-      };
-
-      audio.onerror = () => {
-        console.error("Audio playback error");
-        setIsSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
-      };
-
-      await audio.play();
+      setIsSpeaking(false);
     } catch (error) {
       console.error("TTS/speak error:", error);
       setIsSpeaking(false);
@@ -251,6 +234,33 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
         // Silently fail — at least the chat log shows the response
       }
     }
+  };
+
+  // Direct browser audio playback — used only as a fallback when SDK is unavailable
+  const playAudioFallback = (audioBlob: Blob): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute("src");
+      }
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        resolve();
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        reject(new Error("Audio playback error"));
+      };
+
+      audio.play().catch(reject);
+    });
   };
 
   // Start speech recognition
