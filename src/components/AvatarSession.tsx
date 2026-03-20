@@ -35,17 +35,31 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
   const chatLogRef = useRef<HTMLDivElement>(null);
 
   // Vercel AI SDK chat hook (v6 API)
-  const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({
+  // Use a ref to ensure transport always has the latest token
+  const authTokenRef = useRef(authToken);
+  authTokenRef.current = authToken;
+
+  const transportRef = useRef(
+    new DefaultChatTransport({
       api: "/api/chat",
-      headers: { Authorization: `Bearer ${authToken}` },
-    }),
+      headers: () => ({
+        Authorization: `Bearer ${authTokenRef.current}`,
+      }),
+    })
+  );
+
+  const { messages, sendMessage, status } = useChat({
+    transport: transportRef.current,
     onFinish: ({ message }) => {
       const text = message.parts
         ?.filter((p: any) => p.type === "text")
         .map((p: any) => p.text)
         .join("") || "";
       if (text) speakThroughAvatar(text);
+    },
+    onError: (error) => {
+      console.error("[useChat] Error:", error);
+      setStatusMessage(`Chat error: ${error.message}`);
     },
   });
 

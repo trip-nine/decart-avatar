@@ -19,17 +19,33 @@ export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const token = authHeader?.replace("Bearer ", "");
 
+  console.log("[/api/chat] Auth header present:", !!authHeader);
+  console.log("[/api/chat] Token length:", token?.length || 0);
+
   if (!token) {
-    return new Response("Unauthorized", { status: 401 });
+    console.log("[/api/chat] REJECTED: No token in Authorization header");
+    console.log("[/api/chat] All headers:", Object.fromEntries(req.headers.entries()));
+    return new Response("Unauthorized - no token", { status: 401 });
   }
 
   const session = validateSession(token);
   if (!session) {
-    return new Response("Invalid session", { status: 401 });
+    console.log("[/api/chat] REJECTED: JWT validation failed for token:", token.substring(0, 20) + "...");
+    return new Response("Invalid session - JWT validation failed", { status: 401 });
   }
 
+  console.log("[/api/chat] Auth OK for:", session.email);
+
   try {
-    const { messages } = await req.json();
+    const body = await req.json();
+    const { messages } = body;
+
+    if (!messages || !Array.isArray(messages)) {
+      console.log("[/api/chat] No messages in body. Body keys:", Object.keys(body));
+      return new Response("No messages provided", { status: 400 });
+    }
+
+    console.log("[/api/chat] Processing", messages.length, "messages");
 
     const result = streamText({
       model: openai("gpt-4o-mini"),
@@ -39,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     return result.toUIMessageStreamResponse();
   } catch (error) {
-    console.error("Chat error:", error);
-    return new Response("Chat error", { status: 500 });
+    console.error("[/api/chat] Error:", error);
+    return new Response(`Chat error: ${error instanceof Error ? error.message : "Unknown"}`, { status: 500 });
   }
 }
