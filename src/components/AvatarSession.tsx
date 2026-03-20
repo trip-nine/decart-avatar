@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { createDecartClient, models } from "@decartai/sdk";
 
 interface AvatarSessionProps {
   authToken: string;
@@ -12,7 +13,7 @@ interface AvatarSessionProps {
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
-// Default avatar image (professional headshot placeholder)
+// Default avatar image (professional female headshot)
 const DEFAULT_AVATAR_URL = "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=720&h=720&fit=crop&crop=face";
 
 export default function AvatarSession({ authToken, userEmail, onLogout }: AvatarSessionProps) {
@@ -26,12 +27,11 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
   const [unreadCount, setUnreadCount] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realtimeClientRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const decartTokenRef = useRef<string>("");
   const chatLogRef = useRef<HTMLDivElement>(null);
 
   // Vercel AI SDK chat hook (v6 API)
@@ -80,153 +80,86 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
     return data.apiKey;
   };
 
-  // File to base64 helper
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(",")[1]);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
-  // Connect to Decart Avatar Live via WebSocket + WebRTC
+  // Connect to Decart Avatar Live using the official SDK
   const connectAvatar = useCallback(async () => {
     setConnectionState("connecting");
     setStatusMessage("Fetching credentials...");
 
     try {
       const apiKey = await getDecartToken();
-      decartTokenRef.current = apiKey;
 
-      setStatusMessage("Connecting to Decart...");
+      setStatusMessage("Connecting to Decart Avatar...");
 
-      const ws = new WebSocket(`wss://api3.decart.ai/v1/stream?api_key=${apiKey}&model=live_avatar`);
-      wsRef.current = ws;
+      // Create the Decart SDK client
+      const client = createDecartClient({
+        apiKey,
+        realtimeBaseUrl: "wss://api3.decart.ai",
+      });
 
-      ws.onopen = async () => {
-        setStatusMessage("Sending avatar image...");
-        const imgRes = await fetch(DEFAULT_AVATAR_URL);
-        const imgBlob = await imgRes.blob();
-        const imgBase64 = await blobToBase64(imgBlob);
+      const model = models.realtime("live_avatar");
 
-        ws.send(JSON.stringify({
-          type: "set_image",
-          image_data: imgBase64,
-        }));
-      };
+      // Load avatar image
+      const imageResponse = await fetch(DEFAULT_AVATAR_URL);
+      const avatarImage = await imageResponse.blob();
 
-      ws.onmessage = async (event) => {
-        const message = JSON.parse(event.data);
+      setStatusMessage("Establishing video connection...");
 
-        if (message.type === "set_image_ack") {
-          setStatusMessage("Setting up video stream...");
-          await setupWebRTC(ws);
-        } else if (message.type === "answer" && pcRef.current) {
-          await pcRef.current.setRemoteDescription({
-            type: "answer",
-            sdp: message.sdp,
-          });
+      // Connect using the SDK — null means no camera input (avatar-only mode)
+      // The SDK creates an AudioStreamManager internally for playAudio()
+      const realtimeClient = await client.realtime.connect(null, {
+        model,
+        initialState: {
+          image: avatarImage,
+          prompt: {
+            text: "A friendly, warm, professional female technical support specialist. She smiles gently, makes eye contact, and nods while listening. When speaking, she gestures naturally and shows engaged facial expressions.",
+            enhance: true,
+          },
+        },
+        onRemoteStream: (animatedStream: MediaStream) => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = animatedStream;
+          }
+        },
+      });
+
+      realtimeClientRef.current = realtimeClient;
+
+      // Listen for connection state changes
+      realtimeClient.on("connectionChange", (state: string) => {
+        console.log("Decart connection state:", state);
+        if (state === "connected" || state === "generating") {
           setConnectionState("connected");
           setStatusMessage("Avatar connected — tap mic to talk");
-        } else if (message.type === "error") {
-          console.error("Decart error:", message);
-          setStatusMessage(`Error: ${message.message || "Unknown error"}`);
-          setConnectionState("error");
-        }
-      };
-
-      ws.onerror = (event) => {
-        console.error("WebSocket error:", event);
-        setStatusMessage("WebSocket connection failed");
-        setConnectionState("error");
-      };
-
-      ws.onclose = (event) => {
-        console.log("WebSocket closed:", event.code, event.reason);
-        if (connectionState === "connected") {
+        } else if (state === "disconnected") {
           setConnectionState("disconnected");
           setStatusMessage("Connection lost. Tap Connect to reconnect.");
+        } else if (state === "reconnecting") {
+          setStatusMessage("Reconnecting...");
         }
-      };
+      });
+
+      // Listen for errors
+      realtimeClient.on("error", (error: any) => {
+        console.error("Decart error:", error);
+        setStatusMessage(`Error: ${error?.message || "Unknown error"}`);
+      });
+
+      setConnectionState("connected");
+      setStatusMessage("Avatar connected — tap mic to talk");
     } catch (error) {
       console.error("Connect error:", error);
-      setStatusMessage("Failed to connect. Check console for details.");
+      setStatusMessage(`Failed to connect: ${error instanceof Error ? error.message : "Unknown error"}`);
       setConnectionState("error");
     }
   }, [authToken]);
 
-  // Setup WebRTC peer connection
-  const setupWebRTC = async (ws: WebSocket) => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-    pcRef.current = pc;
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "ice-candidate",
-          candidate: event.candidate,
-        }));
-      }
-    };
-
-    pc.ontrack = (event) => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    pc.addTransceiver("video", { direction: "recvonly" });
-
-    const audioContext = new AudioContext({ sampleRate: 16000 });
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    const destination = audioContext.createMediaStreamDestination();
-    gain.gain.value = 0;
-    oscillator.connect(gain);
-    gain.connect(destination);
-    oscillator.start();
-    destination.stream.getTracks().forEach((track) => {
-      pc.addTrack(track, destination.stream);
-    });
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({
-      type: "offer",
-      sdp: offer.sdp,
-    }));
-  };
-
-  // Send audio base64 to Decart for lip-sync animation
-  const sendAudioToDecart = (audioBase64: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({
-      type: "audio",
-      audio_data: audioBase64,
-    }));
-  };
-
   // Text-to-Speech pipeline:
   // 1. Call /api/tts to generate MP3 audio bytes (female voice)
-  // 2. Send audio base64 to Decart WebSocket for lip-sync
+  // 2. Feed audio to Decart SDK's playAudio() for lip-sync
   // 3. Play audio in browser simultaneously
   const speakThroughAvatar = async (text: string) => {
     setIsSpeaking(true);
     setChatLog((prev) => [...prev, { role: "assistant", content: text }]);
-
-    // Send a prompt to animate the avatar while speaking
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "prompt",
-        prompt: "Speaking naturally with warm expressions, making eye contact",
-      }));
-    }
 
     try {
       // 1. Generate TTS audio via server-side API
@@ -245,12 +178,22 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
 
       const { audio_base64, content_type } = await ttsRes.json();
 
-      // 2. Send audio to Decart for lip-sync animation
-      sendAudioToDecart(audio_base64);
-
-      // 3. Play audio in browser
+      // Decode base64 to bytes
       const audioBytes = Uint8Array.from(atob(audio_base64), (c) => c.charCodeAt(0));
       const audioBlob = new Blob([audioBytes], { type: content_type || "audio/mpeg" });
+
+      // 2. Feed audio to Decart SDK for lip-sync animation
+      // playAudio() sends audio through the WebRTC audio track — the server
+      // detects it and animates the avatar's lips accordingly
+      if (realtimeClientRef.current?.playAudio) {
+        // Play through Decart (lip-sync) — this returns when audio finishes
+        // We run it in parallel with browser audio playback
+        realtimeClientRef.current.playAudio(audioBlob).catch((err: Error) => {
+          console.warn("Decart playAudio error:", err);
+        });
+      }
+
+      // 3. Also play audio in browser so the user hears the voice
       const audioUrl = URL.createObjectURL(audioBlob);
 
       // Stop any previous audio
@@ -265,13 +208,6 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
-        // Return avatar to listening pose
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: "prompt",
-            prompt: "Listening attentively with occasional subtle nods",
-          }));
-        }
       };
 
       audio.onerror = () => {
@@ -377,18 +313,19 @@ export default function AvatarSession({ authToken, userEmail, onLogout }: Avatar
 
   // Disconnect
   const disconnect = () => {
-    wsRef.current?.close();
-    pcRef.current?.close();
+    // Use SDK's disconnect method
+    if (realtimeClientRef.current) {
+      realtimeClientRef.current.disconnect();
+      realtimeClientRef.current = null;
+    }
     // Stop any playing TTS audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
       audioRef.current = null;
     }
-    speechSynthesis.cancel(); // Also cancel any fallback browser TTS
+    speechSynthesis.cancel();
     recognitionRef.current?.stop();
-    wsRef.current = null;
-    pcRef.current = null;
     setConnectionState("idle");
     setIsSpeaking(false);
     setStatusMessage("Disconnected. Tap Connect to start a new session.");
