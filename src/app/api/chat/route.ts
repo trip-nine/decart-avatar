@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { streamText } from "ai";
+import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { validateSession } from "@/lib/auth";
 
@@ -38,19 +38,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { messages } = body;
+    const { messages }: { messages: UIMessage[] } = body;
 
     if (!messages || !Array.isArray(messages)) {
       console.log("[/api/chat] No messages in body. Body keys:", Object.keys(body));
       return new Response("No messages provided", { status: 400 });
     }
 
-    console.log("[/api/chat] Processing", messages.length, "messages");
+    console.log("[/api/chat] Processing", messages.length, "UI messages");
+
+    // Convert UI messages (from useChat) to model messages (for streamText)
+    // AI SDK v6 sends UIMessage[] with parts, but streamText needs ModelMessage[]
+    const modelMessages = await convertToModelMessages(messages);
 
     const result = streamText({
       model: openai("gpt-4o-mini"),
       system: SYSTEM_PROMPT,
-      messages,
+      messages: modelMessages,
     });
 
     return result.toUIMessageStreamResponse();
