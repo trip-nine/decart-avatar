@@ -115,3 +115,4 @@ if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", PORT), TTSHandler)
     print(f"[TTS] Server running on port {PORT}", flush=True)
     server.serve_forever()
+# TTS is configured via OPENAI_API_KEY env var on Vercel
